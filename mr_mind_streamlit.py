@@ -1,10 +1,6 @@
 """
 MR.MIND — Streamlit edition (Google Gemini + voice input + text-to-speech)
-
-Run with:   streamlit run mr_mind_streamlit.py
-
-Requires:
-    pip install streamlit google-genai streamlit-mic-recorder SpeechRecognition gTTS
+Run with: streamlit run mr_mind_streamlit.py
 """
 
 import io
@@ -24,7 +20,7 @@ from gtts import gTTS
 # Config
 # ----------------------------------------------------------------------
 DATA_FILE = Path(__file__).parent / "mr_mind_memories.json"
-MODEL = "gemini-2.5-flash"   # or "gemini-2.5-pro" for stronger (slower/costlier) reasoning
+MODEL = "gemini-2.5-flash"  # or "gemini-2.5-pro"
 
 LANG_NAMES = {
     "ta": "Tamil",
@@ -32,14 +28,14 @@ LANG_NAMES = {
     "te": "Telugu",
     "en": "English",
 }
-# Speech-recognition locale codes (for listening) and gTTS codes (for speaking)
+
 SR_LOCALES = {"ta": "ta-IN", "hi": "hi-IN", "te": "te-IN", "en": "en-US"}
 TTS_CODES = {"ta": "ta", "hi": "hi", "te": "te", "en": "en"}
 
 st.set_page_config(page_title="MR.MIND", page_icon="🧠", layout="centered")
 
 # ----------------------------------------------------------------------
-# Styling — replicates the original dark gradient / pill-button design
+# Styling
 # ----------------------------------------------------------------------
 st.markdown(
     """
@@ -49,7 +45,6 @@ st.markdown(
         color: #e2e8f0;
     }
     #MainMenu, header, footer {visibility: hidden;}
-
     .mm-title {
         text-align: center;
         color: #60a5fa;
@@ -69,7 +64,6 @@ st.markdown(
         letter-spacing: 0.05em;
         margin-bottom: 24px;
     }
-
     .stButton > button {
         background: #3b82f6 !important;
         color: white !important;
@@ -84,25 +78,6 @@ st.markdown(
         transform: translateY(-3px) scale(1.03);
         box-shadow: 0 15px 20px -5px rgba(59,130,246,0.6) !important;
     }
-
-    div[data-testid="stHorizontalBlock"] .stButton > button {
-        width: 100%;
-    }
-
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 12px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        background: #1e2937;
-        border-radius: 9999px;
-        padding: 10px 22px;
-        color: #e2e8f0;
-    }
-    .stTabs [aria-selected="true"] {
-        background: #3b82f6 !important;
-        color: white !important;
-    }
-
     .mm-card {
         background: #1e2937;
         padding: 20px;
@@ -132,19 +107,13 @@ st.markdown(
         border-radius: 16px;
         line-height: 1.7;
     }
-
-    textarea, input {
-        background: #1e2937 !important;
-        color: white !important;
-        border-radius: 12px !important;
-    }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
 # ----------------------------------------------------------------------
-# Persistence — a local JSON file next to the script
+# Persistence & Session State
 # ----------------------------------------------------------------------
 def load_memories():
     if DATA_FILE.exists():
@@ -154,29 +123,36 @@ def load_memories():
             return []
     return []
 
-
 def save_memories(memories):
-    DATA_FILE.write_text(json.dumps(memories, indent=2), encoding="utf-8")
+    DATA_FILE.write_text(json.dumps(memories, indent=2, ensure_ascii=False), encoding="utf-8")
 
-
+# Initialize session state
 if "memories" not in st.session_state:
     st.session_state.memories = load_memories()
+
 if "editing_id" not in st.session_state:
     st.session_state.editing_id = None
+
 if "translations" not in st.session_state:
     st.session_state.translations = {}
+
 if "api_key" not in st.session_state:
     st.session_state.api_key = os.environ.get("GEMINI_API_KEY", "")
+
 if "last_audio_hash" not in st.session_state:
     st.session_state.last_audio_hash = None
+
 if "welcomed" not in st.session_state:
     st.session_state.welcomed = False
-if "pending_audio" not in st.session_state:
-    st.session_state.pending_audio = None
 
+if "journal_input" not in st.session_state:
+    st.session_state.journal_input = ""
+
+if "last_answer" not in st.session_state:
+    st.session_state.last_answer = None
 
 # ----------------------------------------------------------------------
-# AI helper
+# AI Helper
 # ----------------------------------------------------------------------
 def get_client():
     key = st.session_state.api_key
@@ -184,11 +160,11 @@ def get_client():
         return None
     return genai.Client(api_key=key)
 
-
 def call_gemini(system_prompt: str, user_message: str) -> str:
     client = get_client()
     if client is None:
         raise RuntimeError("NO_API_KEY")
+    
     response = client.models.generate_content(
         model=MODEL,
         contents=user_message,
@@ -199,20 +175,16 @@ def call_gemini(system_prompt: str, user_message: str) -> str:
     )
     return response.text.strip()
 
-
 # ----------------------------------------------------------------------
-# Voice helpers
+# Voice Helpers
 # ----------------------------------------------------------------------
 def transcribe_audio(audio_bytes: bytes, lang_code: str) -> str:
-    """Uses the free Google Web Speech API via SpeechRecognition (no API key needed)."""
     recognizer = sr.Recognizer()
     with sr.AudioFile(io.BytesIO(audio_bytes)) as source:
         audio_data = recognizer.record(source)
     return recognizer.recognize_google(audio_data, language=SR_LOCALES.get(lang_code, "en-US"))
 
-
 def speak(text: str, lang_code: str):
-    """Generates speech with gTTS and plays it back automatically."""
     try:
         tts = gTTS(text=text, lang=TTS_CODES.get(lang_code, "en"))
         buf = io.BytesIO()
@@ -222,19 +194,25 @@ def speak(text: str, lang_code: str):
     except Exception as e:
         st.caption(f"(voice unavailable: {e})")
 
-
 # ----------------------------------------------------------------------
-# Header
+# UI Header
 # ----------------------------------------------------------------------
 st.markdown('<div class="mm-title">🧠 MR.MIND</div>', unsafe_allow_html=True)
 st.markdown('<div class="mm-subtitle">Your Personal Intelligent Memory Companion</div>', unsafe_allow_html=True)
 st.markdown('<div class="mm-badge">✨ Powered by real AI reasoning over your memories</div>', unsafe_allow_html=True)
 
-lang_label_to_code = {"தமிழ் - Tamil": "ta", "हिन्दी - Hindi": "hi", "తెలుగు - Telugu": "te", "English": "en"}
+lang_label_to_code = {
+    "தமிழ் - Tamil": "ta", 
+    "हिन्दी - Hindi": "hi", 
+    "తెలుగు - Telugu": "te", 
+    "English": "en"
+}
+
 lang_label = st.selectbox("🌐 Target Language", list(lang_label_to_code.keys()))
 target_lang = lang_label_to_code[lang_label]
 lang_name = LANG_NAMES[target_lang]
 
+# Welcome message
 if not st.session_state.welcomed:
     st.session_state.welcomed = True
     speak("Welcome to your Mind Palace, Sir.", target_lang)
@@ -242,10 +220,11 @@ if not st.session_state.welcomed:
 tab0, tab1, tab2, tab3 = st.tabs(["📝 New Memory", "🔎 Ask AI", "🔖 All Memories", "⚙️ Settings"])
 
 # ----------------------------------------------------------------------
-# Tab 0 — New Memory (with voice input)
+# Tab 0 — New Memory
 # ----------------------------------------------------------------------
 with tab0:
     st.caption("🎙️ Record a memory, or type one below.")
+    
     audio = mic_recorder(
         start_prompt="🎙️ Start Recording",
         stop_prompt="⏹️ Stop Recording",
@@ -267,7 +246,12 @@ with tab0:
                 except Exception as e:
                     st.error(f"Transcription failed: {e}")
 
-    journal_text = st.text_area("What happened today, Sir?", height=200, key="journal_input")
+    journal_text = st.text_area(
+        "What happened today, Sir?", 
+        height=200, 
+        key="journal_input",
+        value=st.session_state.get("journal_input", "")
+    )
 
     if st.button("💾 Save Memory"):
         text = journal_text.strip()
@@ -282,7 +266,10 @@ with tab0:
             save_memories(st.session_state.memories)
             st.success("Memory saved!")
             speak("Done, Sir.", target_lang)
-            st.session_state.journal_input = ""
+            
+            # Safe clear
+            if "journal_input" in st.session_state:
+                del st.session_state.journal_input
             st.rerun()
 
 # ----------------------------------------------------------------------
@@ -290,6 +277,7 @@ with tab0:
 # ----------------------------------------------------------------------
 with tab1:
     query = st.text_input("Ask anything about your memories", key="ask_query")
+    
     if st.button("🔎 Ask AI"):
         if not query.strip():
             st.warning("Type a question first.")
@@ -302,31 +290,34 @@ with tab1:
                     "\n---\n".join(f"[{m['date']}] {m['content']}" for m in memories)
                     if memories else "(No memories have been recorded yet.)"
                 )
+                
                 system_prompt = (
                     "You are Mr. Mind, a warm, thoughtful personal memory assistant. "
                     "You are given a list of the user's personal journal entries (memories), "
                     "each dated. Answer the user's question using ONLY information that can "
                     "reasonably be inferred from these memories. If the memories don't contain "
-                    "relevant information, say so honestly rather than making things up. Be "
-                    "conversational, concise, and refer to specific dates when helpful. "
-                    f"Respond in {lang_name}.\n\nMEMORIES:\n{memory_context}"
+                    "relevant information, say so honestly. Be conversational, concise, "
+                    f"and refer to specific dates when helpful. Respond in {lang_name}.\n\n"
+                    f"MEMORIES:\n{memory_context}"
                 )
+                
                 try:
                     answer = call_gemini(system_prompt, query)
-                    st.markdown(
-                        f'<div class="mm-answer"><strong>🧠 Mr. Mind:</strong><br><br>'
-                        f'{answer}</div>',
-                        unsafe_allow_html=True,
-                    )
-                    st.session_state["last_answer"] = answer
+                    st.session_state.last_answer = answer
+                    st.rerun()
                 except RuntimeError:
                     st.error("Please add your Gemini API key in the Settings tab first.")
                 except Exception as e:
-                    st.error(f"Something went wrong reaching the AI: {e}")
+                    st.error(f"Something went wrong: {e}")
 
     if st.session_state.get("last_answer"):
+        st.markdown(
+            f'<div class="mm-answer"><strong>🧠 Mr. Mind:</strong><br><br>'
+            f'{st.session_state.last_answer}</div>',
+            unsafe_allow_html=True,
+        )
         if st.button("🔊 Read this answer aloud"):
-            speak(st.session_state["last_answer"], target_lang)
+            speak(st.session_state.last_answer, target_lang)
 
 # ----------------------------------------------------------------------
 # Tab 2 — All Memories
@@ -338,82 +329,80 @@ with tab2:
 
     if not st.session_state.memories:
         st.info("No memories yet.")
+    else:
+        for m in st.session_state.memories:
+            mid = m["id"]
+            st.markdown('<div class="mm-card">', unsafe_allow_html=True)
+            st.markdown(f'<span class="mm-date">{m["date"]}</span>', unsafe_allow_html=True)
 
-    for m in st.session_state.memories:
-        mid = m["id"]
-        st.markdown('<div class="mm-card">', unsafe_allow_html=True)
-        st.markdown(f'<span class="mm-date">{m["date"]}</span>', unsafe_allow_html=True)
-
-        if st.session_state.editing_id == mid:
-            new_text = st.text_area("Edit memory", value=m["content"], key=f"edit_{mid}")
-            c1, c2 = st.columns(2)
-            with c1:
-                if st.button("✅ Save changes", key=f"save_{mid}"):
-                    m["content"] = new_text.strip()
-                    save_memories(st.session_state.memories)
-                    st.session_state.editing_id = None
-                    st.rerun()
-            with c2:
-                if st.button("✖️ Cancel", key=f"cancel_{mid}"):
-                    st.session_state.editing_id = None
-                    st.rerun()
-        else:
-            st.write(m["content"])
-            c1, c2, c3, c4 = st.columns(4)
-            with c1:
-                if st.button("✏️ Edit", key=f"editbtn_{mid}"):
-                    st.session_state.editing_id = mid
-                    st.rerun()
-            with c2:
-                if st.button("🌐 Translate", key=f"translate_{mid}"):
-                    if not st.session_state.api_key:
-                        st.error("Add your API key in Settings first.")
-                    else:
-                        with st.spinner("Translating..."):
-                            try:
-                                system_prompt = (
-                                    f"You are a precise translator. Translate the user's text "
-                                    f"into {lang_name}. Respond with ONLY the translated text, "
-                                    f"no explanations, no quotes."
-                                )
-                                translated = call_gemini(system_prompt, m["content"])
-                                st.session_state.translations[mid] = translated
-                            except Exception as e:
-                                st.error(f"Translation failed: {e}")
-            with c3:
-                if st.button("🔊 Listen", key=f"listen_{mid}"):
-                    speak(m["content"], target_lang)
-            with c4:
-                if st.button("🗑️ Delete", key=f"delete_{mid}"):
-                    st.session_state.memories = [
-                        x for x in st.session_state.memories if x["id"] != mid
-                    ]
-                    save_memories(st.session_state.memories)
-                    st.session_state.translations.pop(mid, None)
-                    st.rerun()
+            if st.session_state.editing_id == mid:
+                new_text = st.text_area("Edit memory", value=m["content"], key=f"edit_{mid}")
+                c1, c2 = st.columns(2)
+                with c1:
+                    if st.button("✅ Save changes", key=f"save_{mid}"):
+                        m["content"] = new_text.strip()
+                        save_memories(st.session_state.memories)
+                        st.session_state.editing_id = None
+                        st.rerun()
+                with c2:
+                    if st.button("✖️ Cancel", key=f"cancel_{mid}"):
+                        st.session_state.editing_id = None
+                        st.rerun()
+            else:
+                st.write(m["content"])
+                c1, c2, c3, c4 = st.columns(4)
+                with c1:
+                    if st.button("✏️ Edit", key=f"editbtn_{mid}"):
+                        st.session_state.editing_id = mid
+                        st.rerun()
+                with c2:
+                    if st.button("🌐 Translate", key=f"translate_{mid}"):
+                        if not st.session_state.api_key:
+                            st.error("Add your API key in Settings first.")
+                        else:
+                            with st.spinner("Translating..."):
+                                try:
+                                    system_prompt = (
+                                        f"You are a precise translator. Translate the user's text "
+                                        f"into {lang_name}. Respond with ONLY the translated text, "
+                                        f"no explanations."
+                                    )
+                                    translated = call_gemini(system_prompt, m["content"])
+                                    st.session_state.translations[mid] = translated
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Translation failed: {e}")
+                with c3:
+                    if st.button("🔊 Listen", key=f"listen_{mid}"):
+                        speak(m["content"], target_lang)
+                with c4:
+                    if st.button("🗑️ Delete", key=f"delete_{mid}"):
+                        st.session_state.memories = [
+                            x for x in st.session_state.memories if x["id"] != mid
+                        ]
+                        save_memories(st.session_state.memories)
+                        st.session_state.translations.pop(mid, None)
+                        st.rerun()
 
             if mid in st.session_state.translations:
                 st.markdown(
                     f'<div class="mm-translation">{st.session_state.translations[mid]}</div>',
                     unsafe_allow_html=True,
                 )
-
-        st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
 
 # ----------------------------------------------------------------------
 # Tab 3 — Settings
 # ----------------------------------------------------------------------
 with tab3:
-    st.write(
-        "Ask AI and Translate call the Google Gemini API using your own key. "
-        "The key is kept only in this session's memory (and, optionally, "
-        "the `GEMINI_API_KEY` environment variable) — it is never written "
-        "to the memories file."
-    )
+    st.write("Ask AI and Translate features use Google Gemini API.")
     key_input = st.text_input(
-        "Gemini API key", value=st.session_state.api_key, type="password",
-        placeholder="sk-ant-..."
+        "Gemini API key", 
+        value=st.session_state.api_key, 
+        type="password",
+        placeholder="AIza..."
     )
+    
     c1, c2 = st.columns(2)
     with c1:
         if st.button("🔑 Save Key"):
@@ -423,10 +412,11 @@ with tab3:
         if st.button("🗑️ Remove Key"):
             st.session_state.api_key = ""
             st.success("Key removed.")
-    st.caption("Get a free key at aistudio.google.com → Get API key.")
+    
+    st.caption("Get a free key at [aistudio.google.com](https://aistudio.google.com)")
+    
     st.divider()
     st.write(
-        "Voice input uses Google's free web speech-recognition endpoint via the "
-        "`SpeechRecognition` library — no extra key needed, but it does require "
-        "an internet connection. Text-to-speech uses `gTTS`, also free."
+        "Voice input uses Google's free Speech Recognition. "
+        "Text-to-speech uses gTTS."
     )
