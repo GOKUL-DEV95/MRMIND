@@ -2,13 +2,11 @@
 MR.MIND — Streamlit edition (Google Gemini + voice input + text-to-speech)
 Run with: streamlit run mr_mind_streamlit.py
 """
-
 import io
 import json
 import os
 from datetime import datetime
 from pathlib import Path
-
 import streamlit as st
 from google import genai
 from google.genai import types
@@ -20,7 +18,8 @@ from gtts import gTTS
 # Config
 # ----------------------------------------------------------------------
 DATA_FILE = Path(__file__).parent / "mr_mind_memories.json"
-MODEL = "gemini-2.5-flash"  # or "gemini-2.5-pro"
+MODEL = "gemini-3.5-flash"          # Updated to current stable model
+FALLBACK_MODEL = "gemini-3.1-flash-lite"
 
 LANG_NAMES = {
     "ta": "Tamil",
@@ -28,7 +27,6 @@ LANG_NAMES = {
     "te": "Telugu",
     "en": "English",
 }
-
 SR_LOCALES = {"ta": "ta-IN", "hi": "hi-IN", "te": "te-IN", "en": "en-US"}
 TTS_CODES = {"ta": "ta", "hi": "hi", "te": "te", "en": "en"}
 
@@ -129,25 +127,18 @@ def save_memories(memories):
 # Initialize session state
 if "memories" not in st.session_state:
     st.session_state.memories = load_memories()
-
 if "editing_id" not in st.session_state:
     st.session_state.editing_id = None
-
 if "translations" not in st.session_state:
     st.session_state.translations = {}
-
 if "api_key" not in st.session_state:
     st.session_state.api_key = os.environ.get("GEMINI_API_KEY", "")
-
 if "last_audio_hash" not in st.session_state:
     st.session_state.last_audio_hash = None
-
 if "welcomed" not in st.session_state:
     st.session_state.welcomed = False
-
 if "journal_input" not in st.session_state:
     st.session_state.journal_input = ""
-
 if "last_answer" not in st.session_state:
     st.session_state.last_answer = None
 
@@ -165,15 +156,27 @@ def call_gemini(system_prompt: str, user_message: str) -> str:
     if client is None:
         raise RuntimeError("NO_API_KEY")
     
-    response = client.models.generate_content(
-        model=MODEL,
-        contents=user_message,
-        config=types.GenerateContentConfig(
-            system_instruction=system_prompt,
-            max_output_tokens=1000,
-        ),
-    )
-    return response.text.strip()
+    models_to_try = [MODEL, FALLBACK_MODEL]
+    
+    for model in models_to_try:
+        try:
+            response = client.models.generate_content(
+                model=model,
+                contents=user_message,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    max_output_tokens=1000,
+                ),
+            )
+            return response.text.strip()
+        except Exception as e:
+            error_str = str(e).lower()
+            if "not found" in error_str or "deprecated" in error_str:
+                continue  # try fallback
+            else:
+                raise  # other error
+    
+    raise RuntimeError("All models failed. Please check your API key and try again later.")
 
 # ----------------------------------------------------------------------
 # Voice Helpers
@@ -202,12 +205,11 @@ st.markdown('<div class="mm-subtitle">Your Personal Intelligent Memory Companion
 st.markdown('<div class="mm-badge">✨ Powered by real AI reasoning over your memories</div>', unsafe_allow_html=True)
 
 lang_label_to_code = {
-    "தமிழ் - Tamil": "ta", 
-    "हिन्दी - Hindi": "hi", 
-    "తెలుగు - Telugu": "te", 
+    "தமிழ் - Tamil": "ta",
+    "हिन्दी - Hindi": "hi",
+    "తెలుగు - Telugu": "te",
     "English": "en"
 }
-
 lang_label = st.selectbox("🌐 Target Language", list(lang_label_to_code.keys()))
 target_lang = lang_label_to_code[lang_label]
 lang_name = LANG_NAMES[target_lang]
@@ -224,14 +226,13 @@ tab0, tab1, tab2, tab3 = st.tabs(["📝 New Memory", "🔎 Ask AI", "🔖 All Me
 # ----------------------------------------------------------------------
 with tab0:
     st.caption("🎙️ Record a memory, or type one below.")
-    
+   
     audio = mic_recorder(
         start_prompt="🎙️ Start Recording",
         stop_prompt="⏹️ Stop Recording",
         format="wav",
         key="recorder",
     )
-
     if audio is not None:
         audio_hash = hash(audio["bytes"])
         if st.session_state.last_audio_hash != audio_hash:
@@ -247,8 +248,8 @@ with tab0:
                     st.error(f"Transcription failed: {e}")
 
     journal_text = st.text_area(
-        "What happened today, Sir?", 
-        height=200, 
+        "What happened today, Sir?",
+        height=200,
         key="journal_input",
         value=st.session_state.get("journal_input", "")
     )
@@ -266,8 +267,8 @@ with tab0:
             save_memories(st.session_state.memories)
             st.success("Memory saved!")
             speak("Done, Sir.", target_lang)
-            
-            # Safe clear
+           
+            # Clear input
             if "journal_input" in st.session_state:
                 del st.session_state.journal_input
             st.rerun()
@@ -277,7 +278,7 @@ with tab0:
 # ----------------------------------------------------------------------
 with tab1:
     query = st.text_input("Ask anything about your memories", key="ask_query")
-    
+   
     if st.button("🔎 Ask AI"):
         if not query.strip():
             st.warning("Type a question first.")
@@ -290,7 +291,7 @@ with tab1:
                     "\n---\n".join(f"[{m['date']}] {m['content']}" for m in memories)
                     if memories else "(No memories have been recorded yet.)"
                 )
-                
+               
                 system_prompt = (
                     "You are Mr. Mind, a warm, thoughtful personal memory assistant. "
                     "You are given a list of the user's personal journal entries (memories), "
@@ -300,13 +301,16 @@ with tab1:
                     f"and refer to specific dates when helpful. Respond in {lang_name}.\n\n"
                     f"MEMORIES:\n{memory_context}"
                 )
-                
+               
                 try:
                     answer = call_gemini(system_prompt, query)
                     st.session_state.last_answer = answer
                     st.rerun()
-                except RuntimeError:
-                    st.error("Please add your Gemini API key in the Settings tab first.")
+                except RuntimeError as e:
+                    if "NO_API_KEY" in str(e):
+                        st.error("Please add your Gemini API key in the Settings tab first.")
+                    else:
+                        st.error(f"Something went wrong: {e}")
                 except Exception as e:
                     st.error(f"Something went wrong: {e}")
 
@@ -397,12 +401,12 @@ with tab2:
 with tab3:
     st.write("Ask AI and Translate features use Google Gemini API.")
     key_input = st.text_input(
-        "Gemini API key", 
-        value=st.session_state.api_key, 
+        "Gemini API key",
+        value=st.session_state.api_key,
         type="password",
         placeholder="AIza..."
     )
-    
+   
     c1, c2 = st.columns(2)
     with c1:
         if st.button("🔑 Save Key"):
@@ -412,11 +416,12 @@ with tab3:
         if st.button("🗑️ Remove Key"):
             st.session_state.api_key = ""
             st.success("Key removed.")
-    
+   
     st.caption("Get a free key at [aistudio.google.com](https://aistudio.google.com)")
-    
+   
     st.divider()
     st.write(
         "Voice input uses Google's free Speech Recognition. "
         "Text-to-speech uses gTTS."
     )
+    st.caption(f"Current model: **{MODEL}**")
