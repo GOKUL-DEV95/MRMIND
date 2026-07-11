@@ -1,5 +1,5 @@
 """
-MR.MIND — Streamlit edition
+MR.MIND — Streamlit Edition (Fully Fixed)
 """
 import io
 import json
@@ -16,7 +16,7 @@ from gtts import gTTS
 # ----------------------------------------------------------------------
 # Config
 # ----------------------------------------------------------------------
-DATA_FILE = Path(__file__).parent / "mr_mind_memories.json"
+DATA_FILE = Path("mr_mind_memories.json")
 MODEL = "gemini-3.5-flash"
 FALLBACK_MODEL = "gemini-3.1-flash-lite"
 
@@ -34,42 +34,30 @@ st.markdown(
     <style>
     .stApp { background: linear-gradient(135deg, #0f172a, #1e2937); color: #e2e8f0; }
     #MainMenu, header, footer {visibility: hidden;}
-    
     .mm-title { text-align: center; color: #60a5fa; font-size: 2.8rem; font-weight: 800; margin-bottom: 0; }
-    .mm-subtitle, .mm-badge { text-align: center; margin-bottom: 8px; }
+    .mm-subtitle { text-align: center; color: #94a3b8; margin-bottom: 4px; }
+    .mm-badge { text-align: center; color: #34d399; font-size: 0.8rem; letter-spacing: 0.05em; margin-bottom: 24px; }
 
-    /* Enhanced Pill Tabs */
     .stTabs [data-baseweb="tab"] {
         background-color: #334155 !important;
         color: #e2e8f0 !important;
         border-radius: 9999px !important;
-        padding: 12px 24px !important;
+        padding: 12px 28px !important;
         font-weight: 600 !important;
         box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3) !important;
-        transition: all 0.3s ease !important;
     }
     .stTabs [data-baseweb="tab"]:hover {
         transform: translateY(-6px) !important;
         box-shadow: 0 20px 25px -5px rgb(59 130 246 / 0.5), 0 8px 10px -6px rgb(59 130 246 / 0.5) !important;
-        background-color: #475569 !important;
     }
     .stTabs [data-baseweb="tab"][aria-selected="true"] {
         background: linear-gradient(135deg, #3b82f6, #60a5fa) !important;
         color: white !important;
-        box-shadow: 0 15px 25px -5px rgb(59 130 246 / 0.6) !important;
     }
-
     .stButton > button {
-        background: #3b82f6 !important;
-        color: white !important;
         border-radius: 9999px !important;
-        padding: 0.6rem 1.5rem !important;
+        padding: 0.6rem 1.6rem !important;
         font-weight: 600 !important;
-        transition: all 0.3s ease !important;
-    }
-    .stButton > button:hover {
-        transform: translateY(-4px) scale(1.05);
-        box-shadow: 0 20px 25px -5px rgb(59 130 246 / 0.5) !important;
     }
     </style>
     """,
@@ -77,7 +65,38 @@ st.markdown(
 )
 
 # ----------------------------------------------------------------------
-# API & Functions
+# Load/Save Memories
+# ----------------------------------------------------------------------
+def load_memories():
+    try:
+        if DATA_FILE.exists():
+            return json.loads(DATA_FILE.read_text(encoding="utf-8"))
+    except:
+        pass
+    return []
+
+def save_memories(memories):
+    try:
+        DATA_FILE.write_text(json.dumps(memories, indent=2, ensure_ascii=False), encoding="utf-8")
+    except:
+        pass
+
+# Initialize Session
+if "memories" not in st.session_state:
+    st.session_state.memories = load_memories()
+if "welcomed" not in st.session_state:
+    st.session_state.welcomed = False
+if "last_audio_hash" not in st.session_state:
+    st.session_state.last_audio_hash = None
+if "editing_id" not in st.session_state:
+    st.session_state.editing_id = None
+if "translations" not in st.session_state:
+    st.session_state.translations = {}
+if "last_answer" not in st.session_state:
+    st.session_state.last_answer = None
+
+# ----------------------------------------------------------------------
+# API & Helpers
 # ----------------------------------------------------------------------
 def get_api_key():
     if "GEMINI_API_KEY" in st.secrets:
@@ -86,21 +105,6 @@ def get_api_key():
 
 API_KEY = get_api_key()
 
-def load_memories():
-    if DATA_FILE.exists():
-        try: return json.loads(DATA_FILE.read_text(encoding="utf-8"))
-        except: return []
-    return []
-
-def save_memories(memories):
-    DATA_FILE.write_text(json.dumps(memories, indent=2, ensure_ascii=False), encoding="utf-8")
-
-# Session State
-for key in ["memories", "editing_id", "translations", "last_audio_hash", "welcomed", "journal_input", "last_answer"]:
-    if key not in st.session_state:
-        st.session_state[key] = [] if key == "memories" else None if key == "editing_id" else {} if key == "translations" else False if key == "welcomed" else None
-
-# AI & Voice Functions (same as before)
 def get_client():
     if not API_KEY: return None
     return genai.Client(api_key=API_KEY)
@@ -110,14 +114,14 @@ def call_gemini(system_prompt: str, user_message: str) -> str:
     if not client: raise RuntimeError("NO_API_KEY")
     for model in [MODEL, FALLBACK_MODEL]:
         try:
-            resp = client.models.generate_content(
+            response = client.models.generate_content(
                 model=model,
                 contents=user_message,
                 config=types.GenerateContentConfig(system_instruction=system_prompt, max_output_tokens=1000)
             )
-            return resp.text.strip()
+            return response.text.strip()
         except: continue
-    raise RuntimeError("Failed")
+    raise RuntimeError("Model failed")
 
 def transcribe_audio(audio_bytes: bytes, lang_code: str) -> str:
     recognizer = sr.Recognizer()
@@ -133,7 +137,14 @@ def speak(text: str, lang_code: str):
         buf.seek(0)
         st.audio(buf, format="audio/mp3", autoplay=True)
     except:
-        st.caption("(Voice unavailable)")
+        pass
+
+# ----------------------------------------------------------------------
+# Automatic Welcome
+# ----------------------------------------------------------------------
+if not st.session_state.welcomed:
+    st.session_state.welcomed = True
+    speak("Welcome to your Mind Palace, Sir.", "en")
 
 # ----------------------------------------------------------------------
 # UI
@@ -147,31 +158,26 @@ lang_label = st.selectbox("🌐 Target Language", list(lang_label_to_code.keys()
 target_lang = lang_label_to_code[lang_label]
 lang_name = LANG_NAMES[target_lang]
 
-if not st.session_state.welcomed:
-    st.session_state.welcomed = True
-    speak("Welcome to your Mind Palace, Sir.", target_lang)
-
-tab0, tab1, tab2 = st.tabs([
-    "📝 New Memory", 
-    "🔎 Ask AI", 
-    "📖 All Memories"
-])
+tab0, tab1, tab2 = st.tabs(["📝 New Memory", "🔎 Ask AI", "📖 All Memories"])
 
 # Tab 0: New Memory
 with tab0:
-    st.caption("🎙️ Record a memory, or type one below.")
-    audio = mic_recorder(start_prompt="🎤 Start Recording", stop_prompt="⏹️ Stop", format="wav", key="recorder")
-    if audio is not None and st.session_state.last_audio_hash != hash(audio["bytes"]):
-        st.session_state.last_audio_hash = hash(audio["bytes"])
-        with st.spinner("Transcribing..."):
-            try:
-                text = transcribe_audio(audio["bytes"], target_lang)
-                st.session_state.journal_input = text
-                st.rerun()
-            except Exception as e:
-                st.error(f"Transcription failed: {e}")
+    st.caption("🎙️ Record a memory or type below")
+    audio = mic_recorder(start_prompt="🎤 Start Recording", stop_prompt="⏹️ Stop Recording", format="wav", key="recorder")
+    
+    if audio is not None:
+        if st.session_state.last_audio_hash != hash(audio["bytes"]):
+            st.session_state.last_audio_hash = hash(audio["bytes"])
+            with st.spinner("Transcribing..."):
+                try:
+                    text = transcribe_audio(audio["bytes"], target_lang)
+                    st.session_state.journal_input = text
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Transcription failed: {e}")
 
     journal_text = st.text_area("What happened today, Sir?", height=200, key="journal_input")
+    
     if st.button("💾 Save Memory"):
         text = journal_text.strip()
         if text:
@@ -183,30 +189,33 @@ with tab0:
             save_memories(st.session_state.memories)
             st.success("✅ Memory Saved!")
             speak("Done, Sir.", target_lang)
-            if "journal_input" in st.session_state: del st.session_state.journal_input
+            if "journal_input" in st.session_state:
+                del st.session_state.journal_input
             st.rerun()
         else:
-            st.warning("Please write something.")
+            st.warning("Please write something first.")
 
 # Tab 1: Ask AI
 with tab1:
     if not API_KEY:
-        st.error("API key missing. Add GEMINI_API_KEY in Streamlit Secrets.")
+        st.error("⚠️ Please add your GEMINI_API_KEY in Streamlit Secrets.")
         st.stop()
+    
     query = st.text_input("Ask anything about your memories", key="ask_query")
     if st.button("🔎 Ask Mr. Mind"):
         if query.strip():
-            with st.spinner("Thinking..."):
+            with st.spinner("Reasoning over memories..."):
                 memory_context = "\n---\n".join(f"[{m['date']}] {m['content']}" for m in st.session_state.memories) if st.session_state.memories else "(No memories yet.)"
-                system_prompt = f"You are Mr. Mind. Be warm and concise. Respond in {lang_name}.\n\nMEMORIES:\n{memory_context}"
+                system_prompt = f"You are Mr. Mind, a warm memory assistant. Respond in {lang_name}.\n\nMEMORIES:\n{memory_context}"
                 try:
                     answer = call_gemini(system_prompt, query)
                     st.session_state.last_answer = answer
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error: {e}")
+    
     if st.session_state.get("last_answer"):
-        st.markdown(f'<div class="mm-answer"><strong>🧠 Mr. Mind:</strong><br><br>{st.session_state.last_answer}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="background:#1e2937;padding:20px;border-radius:16px;line-height:1.7;"><strong>🧠 Mr. Mind:</strong><br><br>{st.session_state.last_answer}</div>', unsafe_allow_html=True)
         if st.button("🔊 Read Aloud"):
             speak(st.session_state.last_answer, target_lang)
 
@@ -217,15 +226,15 @@ with tab2:
         st.rerun()
     
     if not st.session_state.memories:
-        st.info("No memories yet.")
+        st.info("No memories yet. Add some in the first tab.")
     else:
         for m in st.session_state.memories:
             mid = m["id"]
-            st.markdown('<div class="mm-card">', unsafe_allow_html=True)
-            st.markdown(f'<span class="mm-date">{m["date"]}</span>', unsafe_allow_html=True)
+            st.markdown('<div style="background:#1e2937;padding:20px;margin:12px 0;border-radius:16px;">', unsafe_allow_html=True)
+            st.markdown(f'<span style="color:#60a5fa;font-weight:700;">{m["date"]}</span>', unsafe_allow_html=True)
             
             if st.session_state.editing_id == mid:
-                new_text = st.text_area("Edit memory", value=m["content"], key=f"edit_{mid}")
+                new_text = st.text_area("Edit", value=m["content"], key=f"edit_{mid}")
                 c1, c2 = st.columns(2)
                 with c1:
                     if st.button("💾 Save", key=f"save_{mid}"):
@@ -251,8 +260,8 @@ with tab2:
                                 translated = call_gemini(f"Translate to {lang_name}. Only return translation.", m["content"])
                                 st.session_state.translations[mid] = translated
                                 st.rerun()
-                            except Exception as e:
-                                st.error(f"Translation failed: {e}")
+                            except:
+                                st.error("Translation failed")
                 with c3:
                     if st.button("🔊 Listen", key=f"listen_{mid}"):
                         speak(m["content"], target_lang)
@@ -264,5 +273,5 @@ with tab2:
                         st.rerun()
             
             if mid in st.session_state.translations:
-                st.markdown(f'<div class="mm-translation">{st.session_state.translations[mid]}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div style="margin-top:12px;padding:14px;background:#111827;border-left:3px solid #8b5cf6;border-radius:8px;font-style:italic;">{st.session_state.translations[mid]}</div>', unsafe_allow_html=True)
             st.markdown('</div>', unsafe_allow_html=True)
