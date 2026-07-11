@@ -1,0 +1,5 @@
+streamlit
+anthropic
+streamlit-mic-recorder
+SpeechRecognition
+gTTS
