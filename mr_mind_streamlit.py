@@ -1,5 +1,5 @@
 """
-MR.MIND — Streamlit Edition (Fully Fixed)
+MR.MIND — Streamlit Edition (Final Clean Version)
 """
 import io
 import json
@@ -27,37 +27,37 @@ TTS_CODES = {"ta": "ta", "hi": "hi", "te": "te", "en": "en"}
 st.set_page_config(page_title="MR.MIND", page_icon="🧠", layout="centered")
 
 # ----------------------------------------------------------------------
-# Styling
+# Hide Audio Player Bar
 # ----------------------------------------------------------------------
 st.markdown(
     """
     <style>
     .stApp { background: linear-gradient(135deg, #0f172a, #1e2937); color: #e2e8f0; }
     #MainMenu, header, footer {visibility: hidden;}
+    
     .mm-title { text-align: center; color: #60a5fa; font-size: 2.8rem; font-weight: 800; margin-bottom: 0; }
     .mm-subtitle { text-align: center; color: #94a3b8; margin-bottom: 4px; }
     .mm-badge { text-align: center; color: #34d399; font-size: 0.8rem; letter-spacing: 0.05em; margin-bottom: 24px; }
 
+    /* Hide Audio Player */
+    audio { display: none !important; }
+    .stAudio { display: none !important; }
+
+    /* Nice Tab & Button Style */
     .stTabs [data-baseweb="tab"] {
         background-color: #334155 !important;
         color: #e2e8f0 !important;
         border-radius: 9999px !important;
         padding: 12px 28px !important;
         font-weight: 600 !important;
-        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3) !important;
     }
     .stTabs [data-baseweb="tab"]:hover {
         transform: translateY(-6px) !important;
-        box-shadow: 0 20px 25px -5px rgb(59 130 246 / 0.5), 0 8px 10px -6px rgb(59 130 246 / 0.5) !important;
+        box-shadow: 0 20px 25px -5px rgb(59 130 246 / 0.5) !important;
     }
     .stTabs [data-baseweb="tab"][aria-selected="true"] {
         background: linear-gradient(135deg, #3b82f6, #60a5fa) !important;
         color: white !important;
-    }
-    .stButton > button {
-        border-radius: 9999px !important;
-        padding: 0.6rem 1.6rem !important;
-        font-weight: 600 !important;
     }
     </style>
     """,
@@ -65,7 +65,7 @@ st.markdown(
 )
 
 # ----------------------------------------------------------------------
-# Load/Save Memories
+# Memory Functions
 # ----------------------------------------------------------------------
 def load_memories():
     try:
@@ -81,7 +81,7 @@ def save_memories(memories):
     except:
         pass
 
-# Initialize Session
+# Session State
 if "memories" not in st.session_state:
     st.session_state.memories = load_memories()
 if "welcomed" not in st.session_state:
@@ -96,7 +96,7 @@ if "last_answer" not in st.session_state:
     st.session_state.last_answer = None
 
 # ----------------------------------------------------------------------
-# API & Helpers
+# Helpers
 # ----------------------------------------------------------------------
 def get_api_key():
     if "GEMINI_API_KEY" in st.secrets:
@@ -135,12 +135,12 @@ def speak(text: str, lang_code: str):
         buf = io.BytesIO()
         tts.write_to_fp(buf)
         buf.seek(0)
-        st.audio(buf, format="audio/mp3", autoplay=True)
+        st.audio(buf, format="audio/mp3", autoplay=True)  # Hidden by CSS
     except:
         pass
 
 # ----------------------------------------------------------------------
-# Automatic Welcome
+# Auto Welcome
 # ----------------------------------------------------------------------
 if not st.session_state.welcomed:
     st.session_state.welcomed = True
@@ -198,15 +198,15 @@ with tab0:
 # Tab 1: Ask AI
 with tab1:
     if not API_KEY:
-        st.error("⚠️ Please add your GEMINI_API_KEY in Streamlit Secrets.")
+        st.error("⚠️ Please add GEMINI_API_KEY in Streamlit Secrets.")
         st.stop()
     
     query = st.text_input("Ask anything about your memories", key="ask_query")
     if st.button("🔎 Ask Mr. Mind"):
         if query.strip():
-            with st.spinner("Reasoning over memories..."):
+            with st.spinner("Reasoning..."):
                 memory_context = "\n---\n".join(f"[{m['date']}] {m['content']}" for m in st.session_state.memories) if st.session_state.memories else "(No memories yet.)"
-                system_prompt = f"You are Mr. Mind, a warm memory assistant. Respond in {lang_name}.\n\nMEMORIES:\n{memory_context}"
+                system_prompt = f"You are Mr. Mind. Be warm and concise. Respond in {lang_name}.\n\nMEMORIES:\n{memory_context}"
                 try:
                     answer = call_gemini(system_prompt, query)
                     st.session_state.last_answer = answer
@@ -221,12 +221,12 @@ with tab1:
 
 # Tab 2: All Memories
 with tab2:
-    if st.button("🔄 Refresh Memories"):
+    if st.button("🔄 Refresh"):
         st.session_state.memories = load_memories()
         st.rerun()
     
     if not st.session_state.memories:
-        st.info("No memories yet. Add some in the first tab.")
+        st.info("No memories yet.")
     else:
         for m in st.session_state.memories:
             mid = m["id"]
@@ -234,7 +234,7 @@ with tab2:
             st.markdown(f'<span style="color:#60a5fa;font-weight:700;">{m["date"]}</span>', unsafe_allow_html=True)
             
             if st.session_state.editing_id == mid:
-                new_text = st.text_area("Edit", value=m["content"], key=f"edit_{mid}")
+                new_text = st.text_area("Edit memory", value=m["content"], key=f"edit_{mid}")
                 c1, c2 = st.columns(2)
                 with c1:
                     if st.button("💾 Save", key=f"save_{mid}"):
